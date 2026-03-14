@@ -171,7 +171,16 @@ export async function processHookEvent(eventData) {
     overlayColors: pack.overlay_colors,
   });
 
-  await speakPhrase(phrase, config, pack);
+  // Build remote context for the listener (ntfy notifications, voice routing)
+  const remoteContext = {
+    event: eventName,
+    category,
+    project: projectName,
+    pack_id: pack.id || packId,
+    context: extractContext(eventData) || "",
+  };
+
+  await speakPhrase(phrase, config, pack, remoteContext);
   debugLog("processHookEvent done (speakPhrase returned)", { source });
 }
 

@@ -236,7 +236,7 @@ function getPlaybackCommand(platform, volume, cachePath) {
   return null;
 }
 
-function postPhraseToRemote(phrase, volume, remoteUrl) {
+function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
   return new Promise((resolve) => {
     let url;
     try {
@@ -244,7 +244,7 @@ function postPhraseToRemote(phrase, volume, remoteUrl) {
     } catch {
       return resolve();
     }
-    const payload = JSON.stringify({ phrase, volume });
+    const payload = JSON.stringify({ phrase, volume, ...remoteContext });
     const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
     const req = requestFn(
       url,
@@ -532,7 +532,7 @@ export async function renderPhraseToFile(phrase, outputPath, config, pack) {
 
 // --- Public API ---
 
-export async function speakPhrase(phrase, config, pack) {
+export async function speakPhrase(phrase, config, pack, remoteContext) {
   const packId = (pack && pack.id) || "_default";
   const packCacheDir = join(CACHE_DIR, packId);
   mkdirSync(packCacheDir, { recursive: true });
@@ -554,7 +554,7 @@ export async function speakPhrase(phrase, config, pack) {
   // Remote playback: skip local TTS, send phrase text to remote listener
   const remoteUrl = config.remote_playback_url || null;
   if (remoteUrl) {
-    return postPhraseToRemote(phrase, volume, remoteUrl);
+    return postPhraseToRemote(phrase, volume, remoteUrl, remoteContext || {});
   }
 
   // Ensure audio is in cache (all effects baked in at cache time)
