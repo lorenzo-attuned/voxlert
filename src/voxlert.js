@@ -8,6 +8,7 @@
 
 import { basename } from "path";
 import { appendFileSync, mkdirSync } from "fs";
+import { request as httpsRequest } from "https";
 import { loadConfig, EVENT_MAP, CONTEXTUAL_EVENTS, FALLBACK_PHRASES } from "./config.js";
 import { extractContext, generatePhrase } from "./llm.js";
 import { speakPhrase } from "./audio.js";
@@ -181,6 +182,50 @@ export async function processHookEvent(eventData) {
   };
 
   await speakPhrase(phrase, config, pack, remoteContext);
+
+  // Send ntfy push notification (works for both local and remote playback)
+  const ntfyTopic = config.ntfy_topic || "";
+  if (ntfyTopic) {
+    const contextSnippet = extractContext(eventData) || "";
+    const categoryLabels = {
+      "task.complete": "Task complete",
+      "task.error": "Error",
+      "input.required": "Input needed",
+      "session.start": "Session started",
+      "session.end": "Session ended",
+      "resource.limit": "Context limit",
+      "notification": "Notification",
+    };
+    const label = categoryLabels[category] || category;
+    const ntfyTitle = `${projectName ? projectName + " — " : ""}${label}`;
+    let ntfyBody = "";
+    if (contextSnippet) {
+      ntfyBody = contextSnippet.replace(/\s+/g, " ").slice(0, 200) + "\n\n";
+    }
+    ntfyBody += `🎙 ${phraseOneLine}`;
+
+    // Fire and forget — don't block on ntfy
+    const ntfyUrl = new URL(`https://ntfy.sh/${ntfyTopic}`);
+    const ntfyPayload = ntfyBody;
+    const ntfyReq = httpsRequest(
+      ntfyUrl,
+      {
+        method: "POST",
+        headers: {
+          "Title": ntfyTitle,
+          "Tags": category,
+          "Content-Length": Buffer.byteLength(ntfyPayload),
+        },
+        timeout: 5000,
+      },
+      (res) => { res.resume(); },
+    );
+    ntfyReq.on("error", () => {});
+    ntfyReq.on("timeout", () => { ntfyReq.destroy(); });
+    ntfyReq.write(ntfyPayload);
+    ntfyReq.end();
+  }
+
   debugLog("processHookEvent done (speakPhrase returned)", { source });
 }
 
