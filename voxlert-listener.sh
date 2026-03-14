@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# voxlert-listener.sh — Lightweight HTTP listener that receives WAV audio
-# from a remote voxlert instance and plays it locally via afplay.
+# voxlert-listener.sh — Receives phrase text from a remote voxlert instance,
+# generates speech locally via the Qwen TTS server, and plays via afplay.
+#
+# Prerequisites:
+#   - Qwen TTS server running locally (./qwen3-tts-server/run.sh)
+#   - jq installed (brew install jq)
 #
 # Usage:
 #   ./voxlert-listener.sh [port]    (default: 7890)
@@ -9,9 +13,11 @@
 #   "remote_playback_url": "http://<mac-ip-or-tailscale>:7890/play"
 
 PORT="${1:-7890}"
+TTS_URL="${VOXLERT_TTS_URL:-http://localhost:8100/tts}"
 TMPDIR="${TMPDIR:-/tmp}"
 
 echo "voxlert-listener: listening on port $PORT"
+echo "  TTS server: $TTS_URL"
 echo "  Configure remote voxlert with:"
 echo "    remote_playback_url: http://<this-machine>:$PORT/play"
 echo ""
@@ -25,11 +31,11 @@ cleanup() {
 trap cleanup INT TERM
 
 while true; do
-  TMPFILE="$TMPDIR/voxlert-$(date +%s%N 2>/dev/null || date +%s).wav"
+  BODYFILE="$TMPDIR/voxlert-body-$$.tmp"
+  WAVFILE="$TMPDIR/voxlert-$(date +%s%N 2>/dev/null || date +%s).wav"
 
-  # Use nc to accept one HTTP request, save the body, and respond 200
+  # Accept one HTTP request, save the JSON body, respond 200
   {
-    # Read request line and headers
     read -r REQUEST_LINE
     CONTENT_LENGTH=0
     while IFS= read -r HEADER; do
@@ -43,22 +49,36 @@ while true; do
       esac
     done
 
-    # Read body
     if [ "$CONTENT_LENGTH" -gt 0 ] 2>/dev/null; then
-      dd bs=1 count="$CONTENT_LENGTH" of="$TMPFILE" 2>/dev/null
+      dd bs=1 count="$CONTENT_LENGTH" of="$BODYFILE" 2>/dev/null
     fi
 
-    # Send response
     printf "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
   } < <(nc -l "$PORT") | cat
 
-  # Play the audio if we received a file
-  if [ -f "$TMPFILE" ] && [ -s "$TMPFILE" ]; then
-    afplay "$TMPFILE" 2>/dev/null &
-    # Clean up after playback finishes
-    PLAY_PID=$!
-    (wait "$PLAY_PID" 2>/dev/null; rm -f "$TMPFILE") &
+  # Parse phrase from JSON body and generate speech locally
+  if [ -f "$BODYFILE" ] && [ -s "$BODYFILE" ]; then
+    PHRASE=$(jq -r '.phrase // empty' "$BODYFILE" 2>/dev/null)
+    VOLUME=$(jq -r '.volume // 0.5' "$BODYFILE" 2>/dev/null)
+    rm -f "$BODYFILE"
+
+    if [ -n "$PHRASE" ]; then
+      echo "  >> $PHRASE"
+      # Generate speech via local TTS server
+      curl -s -X POST "$TTS_URL" \
+        -H 'Content-Type: application/json' \
+        -d "{\"text\": $(echo "$PHRASE" | jq -Rs .)}" \
+        --output "$WAVFILE" 2>/dev/null
+
+      if [ -f "$WAVFILE" ] && [ -s "$WAVFILE" ]; then
+        afplay -v "$VOLUME" "$WAVFILE" 2>/dev/null &
+        PLAY_PID=$!
+        (wait "$PLAY_PID" 2>/dev/null; rm -f "$WAVFILE") &
+      else
+        rm -f "$WAVFILE" 2>/dev/null
+      fi
+    fi
   else
-    rm -f "$TMPFILE" 2>/dev/null
+    rm -f "$BODYFILE" 2>/dev/null
   fi
 done

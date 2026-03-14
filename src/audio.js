@@ -179,10 +179,10 @@ function releaseLock() {
   }
 }
 
-function enqueue(cachePath, volume, remoteUrl) {
+function enqueue(cachePath, volume) {
   mkdirSync(QUEUE_DIR, { recursive: true });
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
-  writeFileSync(join(QUEUE_DIR, filename), JSON.stringify({ cachePath, volume, remoteUrl: remoteUrl || null }));
+  writeFileSync(join(QUEUE_DIR, filename), JSON.stringify({ cachePath, volume }));
 }
 
 function getNextEntry() {
@@ -236,30 +236,25 @@ function getPlaybackCommand(platform, volume, cachePath) {
   return null;
 }
 
-function postToRemote(cachePath, remoteUrl) {
+function postPhraseToRemote(phrase, volume, remoteUrl) {
   return new Promise((resolve) => {
-    let audioData;
-    try {
-      audioData = readFileSync(cachePath);
-    } catch {
-      return resolve();
-    }
     let url;
     try {
       url = new URL(remoteUrl);
     } catch {
       return resolve();
     }
+    const payload = JSON.stringify({ phrase, volume });
     const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
     const req = requestFn(
       url,
       {
         method: "POST",
         headers: {
-          "Content-Type": "audio/wav",
-          "Content-Length": audioData.length,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 10000,
+        timeout: 30000,
       },
       (res) => {
         res.resume();
@@ -268,15 +263,12 @@ function postToRemote(cachePath, remoteUrl) {
     );
     req.on("error", () => resolve());
     req.on("timeout", () => { req.destroy(); resolve(); });
-    req.write(audioData);
+    req.write(payload);
     req.end();
   });
 }
 
-export function playFile(cachePath, volume, remoteUrl) {
-  if (remoteUrl) {
-    return postToRemote(cachePath, remoteUrl);
-  }
+export function playFile(cachePath, volume) {
   return new Promise((resolve) => {
     if (!existsSync(cachePath)) return resolve();
     const platform = process.platform;
@@ -301,7 +293,7 @@ async function processQueue() {
           readFileSync(entryPath, "utf-8"),
         );
         unlinkSync(entryPath);
-        await playFile(entry_data.cachePath, entry_data.volume, entry_data.remoteUrl);
+        await playFile(entry_data.cachePath, entry_data.volume);
       } catch {
         try {
           unlinkSync(entryPath);
@@ -559,6 +551,12 @@ export async function speakPhrase(phrase, config, pack) {
   const customAudioFilter = (pack && pack.audio_filter) || null;
   const postProcessCmd = (pack && pack.post_process) || null;
 
+  // Remote playback: skip local TTS, send phrase text to remote listener
+  const remoteUrl = config.remote_playback_url || null;
+  if (remoteUrl) {
+    return postPhraseToRemote(phrase, volume, remoteUrl);
+  }
+
   // Ensure audio is in cache (all effects baked in at cache time)
   if (existsSync(cachePath)) {
     touchFile(cachePath);
@@ -572,7 +570,6 @@ export async function speakPhrase(phrase, config, pack) {
   }
 
   // Enqueue and try to become the player
-  const remoteUrl = config.remote_playback_url || null;
-  enqueue(cachePath, volume, remoteUrl);
+  enqueue(cachePath, volume);
   await processQueue();
 }
