@@ -14,8 +14,8 @@
 #   VOXLERT_TTS_URL        TTS server URL (default: http://localhost:8100/tts)
 #   VOXLERT_NTFY_TOPIC     ntfy topic for push notifications (optional)
 #   VOXLERT_DENY_PROJECTS  Comma-separated project names to silence (e.g., "boot,test")
-#   VOXLERT_DEDUP_SECS     Suppress duplicate phrases within N seconds (default: 120)
-#   VOXLERT_RATE_SECS      Min seconds between same project+category (default: 30)
+#   VOXLERT_DEDUP_SECS     Suppress duplicate phrases within N seconds (default: 300)
+#   VOXLERT_RATE_SECS      Min seconds between same project+category (default: 120)
 #
 # On the remote machine, set in ~/.voxlert/config.json:
 #   "remote_playback_url": "http://<mac-ip-or-tailscale>:7890/play"
@@ -24,8 +24,8 @@ PORT="${1:-7890}"
 TTS_URL="${VOXLERT_TTS_URL:-http://localhost:8100/tts}"
 NTFY_TOPIC="${VOXLERT_NTFY_TOPIC:-}"
 DENY_PROJECTS="${VOXLERT_DENY_PROJECTS:-}"
-DEDUP_SECS="${VOXLERT_DEDUP_SECS:-120}"
-RATE_SECS="${VOXLERT_RATE_SECS:-30}"
+DEDUP_SECS="${VOXLERT_DEDUP_SECS:-300}"
+RATE_SECS="${VOXLERT_RATE_SECS:-120}"
 TMPDIR="${TMPDIR:-/tmp}"
 DEDUP_DIR="$TMPDIR/voxlert-dedup-$$"
 mkdir -p "$DEDUP_DIR"
