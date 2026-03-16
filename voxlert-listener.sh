@@ -143,26 +143,26 @@ while true; do
 
     # 1. Project deny list
     if is_denied_project "$PROJECT"; then
-      echo "  [$PROJECT] DENIED: $PHRASE"
+      echo "  $(date '+%H:%M:%S') [$PROJECT] DENIED: $PHRASE"
       continue
     fi
 
     # 2. Phrase deduplication (same phrase within DEDUP_SECS)
     if is_duplicate "phrase:$PHRASE" "$DEDUP_SECS"; then
-      echo "  [$PROJECT] DEDUP: $PHRASE"
+      echo "  $(date '+%H:%M:%S') [$PROJECT] DEDUP: $PHRASE"
       continue
     fi
 
     # 3. Rate limit per project+category (within RATE_SECS)
     if [ -n "$PROJECT" ] && [ -n "$CATEGORY" ]; then
       if is_duplicate "rate:$PROJECT:$CATEGORY" "$RATE_SECS"; then
-        echo "  [$PROJECT] RATE: $LABEL — $PHRASE"
+        echo "  $(date '+%H:%M:%S') [$PROJECT] RATE: $LABEL — $PHRASE"
         continue
       fi
     fi
 
     # --- Passed filters ---
-    echo "  [$PROJECT] $LABEL: $PHRASE"
+    echo "  $(date '+%H:%M:%S') [$PROJECT] $LABEL: $PHRASE"
 
     # Generate speech via local TTS server
     curl -s -X POST "$TTS_URL" \
