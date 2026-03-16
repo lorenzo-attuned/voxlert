@@ -129,20 +129,22 @@ export const listenCommand = {
       const ntfyTopic = config.ntfy_topic || "";
       if (ntfyTopic) {
         const { request } = await import("https");
-        const ntfyTitle = `${project ? project + " — " : ""}${label}`;
+        const ntfyTitle = `${project ? project + " - " : ""}${label}`;
         let ntfyBody = "";
         if (contextSnippet) {
           ntfyBody = contextSnippet.replace(/\s+/g, " ").slice(0, 200) + "\n\n";
         }
         ntfyBody += `🎙 ${phrase}`;
 
+        // ntfy requires ASCII headers; use RFC 2047 encoding for Unicode
+        const encodedTitle = Buffer.from(ntfyTitle).toString("base64");
         const ntfyReq = request(
           `https://ntfy.sh/${ntfyTopic}`,
           {
             method: "POST",
             headers: {
-              "Title": ntfyTitle,
-              "Tags": category,
+              "X-Title": "=?UTF-8?B?" + encodedTitle + "?=",
+              "X-Tags": category,
               "Content-Length": Buffer.byteLength(ntfyBody),
             },
           },

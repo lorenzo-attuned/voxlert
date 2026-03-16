@@ -197,23 +197,24 @@ export async function processHookEvent(eventData) {
       "notification": "Notification",
     };
     const label = categoryLabels[category] || category;
-    const ntfyTitle = `${projectName ? projectName + " — " : ""}${label}`;
+    const ntfyTitle = `${projectName ? projectName + " - " : ""}${label}`;
     let ntfyBody = "";
     if (contextSnippet) {
       ntfyBody = contextSnippet.replace(/\s+/g, " ").slice(0, 200) + "\n\n";
     }
-    ntfyBody += `🎙 ${phraseOneLine}`;
+    ntfyBody += phraseOneLine;
 
     // Fire and forget — don't block on ntfy
     const ntfyUrl = new URL(`https://ntfy.sh/${ntfyTopic}`);
     const ntfyPayload = ntfyBody;
+    const encodedTitle = Buffer.from(ntfyTitle).toString("base64");
     const ntfyReq = httpsRequest(
       ntfyUrl,
       {
         method: "POST",
         headers: {
-          "Title": ntfyTitle,
-          "Tags": category,
+          "X-Title": "=?UTF-8?B?" + encodedTitle + "?=",
+          "X-Tags": category,
           "Content-Length": Buffer.byteLength(ntfyPayload),
         },
         timeout: 5000,
