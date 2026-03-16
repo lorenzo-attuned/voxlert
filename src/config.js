@@ -95,6 +95,9 @@ const PROJECT_OVERRIDE_FIELDS = new Set([
   "error_log",
   "remote_playback_url",
   "ntfy_topic",
+  "listener_deny_projects",
+  "listener_dedup_secs",
+  "listener_rate_secs",
 ]);
 
 /**
