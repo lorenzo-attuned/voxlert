@@ -236,6 +236,38 @@ function getPlaybackCommand(platform, volume, cachePath) {
   return null;
 }
 
+function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL(remoteUrl);
+    } catch {
+      return resolve();
+    }
+    const payload = JSON.stringify({ phrase, volume, ...remoteContext });
+    const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const req = requestFn(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+        timeout: 30000,
+      },
+      (res) => {
+        res.resume();
+        resolve();
+      },
+    );
+    req.on("error", () => resolve());
+    req.on("timeout", () => { req.destroy(); resolve(); });
+    req.write(payload);
+    req.end();
+  });
+}
+
 export function playFile(cachePath, volume) {
   return new Promise((resolve) => {
     if (!existsSync(cachePath)) return resolve();
@@ -500,7 +532,7 @@ export async function renderPhraseToFile(phrase, outputPath, config, pack) {
 
 // --- Public API ---
 
-export async function speakPhrase(phrase, config, pack) {
+export async function speakPhrase(phrase, config, pack, remoteContext) {
   const packId = (pack && pack.id) || "_default";
   const packCacheDir = join(CACHE_DIR, packId);
   mkdirSync(packCacheDir, { recursive: true });
@@ -518,6 +550,12 @@ export async function speakPhrase(phrase, config, pack) {
   const refText = (pack && pack.ref_text) || null;
   const customAudioFilter = (pack && pack.audio_filter) || null;
   const postProcessCmd = (pack && pack.post_process) || null;
+
+  // Remote playback: skip local TTS, send phrase text to remote listener
+  const remoteUrl = config.remote_playback_url || null;
+  if (remoteUrl) {
+    return postPhraseToRemote(phrase, volume, remoteUrl, remoteContext || {});
+  }
 
   // Ensure audio is in cache (all effects baked in at cache time)
   if (existsSync(cachePath)) {
