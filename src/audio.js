@@ -241,11 +241,13 @@ function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
     let url;
     try {
       url = new URL(remoteUrl);
-    } catch {
+    } catch (e) {
+      console.log(`Remote playback: invalid URL ${remoteUrl}: ${e.message}`);
       return resolve();
     }
     const payload = JSON.stringify({ phrase, volume, ...remoteContext });
     const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
+    console.log(`Remote playback: POST ${url.href} (${Buffer.byteLength(payload)} bytes)`);
     const req = requestFn(
       url,
       {
@@ -257,12 +259,13 @@ function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
         timeout: 5000,
       },
       (res) => {
+        console.log(`Remote playback: response ${res.statusCode}`);
         res.resume();
         resolve();
       },
     );
-    req.on("error", () => resolve());
-    req.on("timeout", () => { req.destroy(); resolve(); });
+    req.on("error", (err) => { console.log(`Remote playback: error ${err.message}`); resolve(); });
+    req.on("timeout", () => { console.log("Remote playback: timeout"); req.destroy(); resolve(); });
     req.write(payload);
     req.end();
   });
@@ -554,6 +557,7 @@ export async function speakPhrase(phrase, config, pack, remoteContext) {
   // Remote playback: skip local TTS, send phrase text to remote listener
   const remoteUrl = config.remote_playback_url || null;
   if (remoteUrl) {
+    console.log(`Remote playback: posting to ${remoteUrl}`);
     return postPhraseToRemote(phrase, volume, remoteUrl, remoteContext || {});
   }
 
