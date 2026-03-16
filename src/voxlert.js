@@ -76,8 +76,8 @@ export async function processHookEvent(eventData) {
       : (config.qwen_tts_url || "http://localhost:8100");
     const reachable = await new Promise((resolve) => {
       try {
-        const url = new URL(ttsUrl);
-        const req = httpRequest(url, { method: "GET", timeout: 1000 }, (res) => {
+        const url = new URL("/health", ttsUrl);
+        const req = httpRequest(url, { method: "HEAD", timeout: 1000 }, (res) => {
           res.resume();
           resolve(true);
         });
