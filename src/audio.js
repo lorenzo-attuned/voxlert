@@ -75,7 +75,7 @@ function registerVoiceWithQwen(config, voicePath, refText) {
           "Content-Type": `multipart/form-data; boundary=${boundary}`,
           "Content-Length": body.length,
         },
-        timeout: 15000,
+        timeout: 5000,
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -254,7 +254,7 @@ function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 30000,
+        timeout: 5000,
       },
       (res) => {
         res.resume();
@@ -390,7 +390,7 @@ function downloadQwen(phrase, cachePath, config, voiceId) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 30000,
+        timeout: 5000,
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
