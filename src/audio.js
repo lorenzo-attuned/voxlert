@@ -75,7 +75,7 @@ function registerVoiceWithQwen(config, voicePath, refText) {
           "Content-Type": `multipart/form-data; boundary=${boundary}`,
           "Content-Length": body.length,
         },
-        timeout: 5000,
+        timeout: 15000,
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -256,7 +256,7 @@ function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 5000,
+        timeout: 15000,
       },
       (res) => {
         console.log(`Remote playback: response ${res.statusCode}`);
@@ -393,7 +393,7 @@ function downloadQwen(phrase, cachePath, config, voiceId) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 5000,
+        timeout: 15000,
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -563,10 +563,12 @@ export async function speakPhrase(phrase, config, pack, remoteContext) {
 
   // Ensure audio is in cache (all effects baked in at cache time)
   if (existsSync(cachePath)) {
+    console.log(`speakPhrase: cache hit ${cachePath}`);
     touchFile(cachePath);
   } else {
+    console.log(`speakPhrase: cache miss, downloading TTS (backend=${backend}, pack=${packId})`);
     await downloadToCache(phrase, cachePath, config, voicePath, ttsParams, packId, refText);
-    if (!existsSync(cachePath)) return false; // download failed
+    if (!existsSync(cachePath)) { console.log("speakPhrase: TTS download failed, no audio produced"); return false; }
     if (postProcessCmd) postProcess(cachePath, postProcessCmd);
     if (customAudioFilter || echo) applyEcho(cachePath, customAudioFilter);
     normalizeVolume(cachePath);
