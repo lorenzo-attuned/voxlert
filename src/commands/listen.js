@@ -1,5 +1,6 @@
 import { createServer } from "http";
 import { createHash } from "crypto";
+import { execSync } from "child_process";
 import { loadConfig } from "../config.js";
 import { speakPhrase } from "../audio.js";
 import { loadPack } from "../packs.js";
@@ -119,7 +120,8 @@ export const listenCommand = {
       console.log(`  ${ts()} [${project}] ${label}: ${phrase}`);
 
       // Load pack (use pack_id from remote if available, otherwise config default)
-      const listenConfig = { ...config };
+      // Clear remote_playback_url so speakPhrase plays locally, not loops back
+      const listenConfig = { ...config, remote_playback_url: null };
       if (packId) listenConfig.active_pack = packId;
       const pack = loadPack(listenConfig);
 
@@ -166,6 +168,26 @@ export const listenCommand = {
       console.log(`    remote_playback_url: http://<this-machine>:${port}/play`);
       console.log("");
     });
+
+    // Reap stale voxlert hook processes every 30 seconds
+    setInterval(() => {
+      try {
+        // Find voxlert hook processes older than 30 seconds and kill them
+        const output = execSync(
+          "ps -eo pid,etimes,command | grep '[v]oxlert hook' | awk '$2 > 30 {print $1}'",
+          { encoding: "utf-8", timeout: 5000 },
+        ).trim();
+        if (output) {
+          const pids = output.split("\n").filter(Boolean);
+          if (pids.length > 0) {
+            execSync(`kill ${pids.join(" ")} 2>/dev/null`, { timeout: 2000 });
+            console.log(`  ${ts()} REAPER: killed ${pids.length} stale hook process(es)`);
+          }
+        }
+      } catch {
+        // ignore — no stale processes or kill failed
+      }
+    }, 30000);
 
     // Keep running until Ctrl+C
     await new Promise(() => {});
