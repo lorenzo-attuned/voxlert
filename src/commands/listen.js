@@ -172,20 +172,33 @@ export const listenCommand = {
     // Reap stale voxlert hook processes every 30 seconds
     setInterval(() => {
       try {
-        // Find voxlert hook processes older than 30 seconds and kill them
+        // macOS ps doesn't support etimes; use etime (elapsed time as [[dd-]hh:]mm:ss)
         const output = execSync(
-          "ps -eo pid,etimes,command | grep '[v]oxlert hook' | awk '$2 > 30 {print $1}'",
+          "ps -eo pid,etime,command | grep '[v]oxlert hook'",
           { encoding: "utf-8", timeout: 5000 },
         ).trim();
-        if (output) {
-          const pids = output.split("\n").filter(Boolean);
-          if (pids.length > 0) {
-            execSync(`kill ${pids.join(" ")} 2>/dev/null`, { timeout: 2000 });
-            console.log(`  ${ts()} REAPER: killed ${pids.length} stale hook process(es)`);
-          }
+        if (!output) return;
+        const stale = [];
+        for (const line of output.split("\n")) {
+          const match = line.trim().match(/^(\d+)\s+([\d:.-]+)/);
+          if (!match) continue;
+          const pid = match[1];
+          const etime = match[2]; // format: ss, mm:ss, hh:mm:ss, or dd-hh:mm:ss
+          // Parse elapsed time to seconds
+          const parts = etime.replace(/-/g, ":").split(":").map(Number);
+          let secs = 0;
+          if (parts.length === 1) secs = parts[0];
+          else if (parts.length === 2) secs = parts[0] * 60 + parts[1];
+          else if (parts.length === 3) secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
+          else secs = parts[0] * 86400 + parts[1] * 3600 + parts[2] * 60 + parts[3];
+          if (secs > 30) stale.push(pid);
+        }
+        if (stale.length > 0) {
+          execSync(`kill ${stale.join(" ")} 2>/dev/null`, { timeout: 2000 });
+          console.log(`  ${ts()} REAPER: killed ${stale.length} stale hook process(es)`);
         }
       } catch {
-        // ignore — no stale processes or kill failed
+        // ignore
       }
     }, 30000);
 
