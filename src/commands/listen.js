@@ -1,9 +1,13 @@
 import { createServer } from "http";
 import { createHash } from "crypto";
 import { execSync } from "child_process";
+import { existsSync } from "fs";
+import { join } from "path";
 import { loadConfig } from "../config.js";
 import { speakPhrase } from "../audio.js";
 import { loadPack } from "../packs.js";
+import { STATE_DIR } from "../paths.js";
+import { isMuted, queueWhileMuted, drainMuteQueue } from "./mute.js";
 
 // --- Dedup / rate-limit state ---
 const seen = new Map(); // key → timestamp (ms)
@@ -43,6 +47,45 @@ function ts() {
   return new Date().toLocaleTimeString("en-GB", { hour12: false });
 }
 
+function sendNtfy(config, project, label, category, contextSnippet, phrase) {
+  const ntfyTopic = config.ntfy_topic || "";
+  if (!ntfyTopic) return;
+  import("https").then(({ request }) => {
+    const ntfyTitle = `${project ? project + " - " : ""}${label}`;
+    let ntfyBody = "";
+    if (contextSnippet) {
+      ntfyBody = contextSnippet.replace(/\s+/g, " ").slice(0, 200) + "\n\n";
+    }
+    ntfyBody += phrase;
+    const encodedTitle = Buffer.from(ntfyTitle).toString("base64");
+    const ntfyReq = request(
+      `https://ntfy.sh/${ntfyTopic}`,
+      {
+        method: "POST",
+        headers: {
+          "X-Title": "=?UTF-8?B?" + encodedTitle + "?=",
+          "X-Tags": category,
+          "Content-Length": Buffer.byteLength(ntfyBody),
+        },
+      },
+      (r) => { r.resume(); },
+    );
+    ntfyReq.on("error", () => {});
+    ntfyReq.write(ntfyBody);
+    ntfyReq.end();
+  });
+}
+
+async function playQueue(items, config) {
+  for (const item of items) {
+    const listenConfig = { ...config, remote_playback_url: null };
+    if (item.pack_id) listenConfig.active_pack = item.pack_id;
+    const pack = loadPack(listenConfig);
+    console.log(`  ${ts()} QUEUED: ${item.phrase}`);
+    await speakPhrase(item.phrase, listenConfig, pack);
+  }
+}
+
 export const listenCommand = {
   name: "listen",
   aliases: [],
@@ -58,6 +101,43 @@ export const listenCommand = {
     const denyProjects = (config.listener_deny_projects || "").split(",").filter(Boolean);
     const dedupSecs = config.listener_dedup_secs ?? 300;
     const rateSecs = config.listener_rate_secs ?? 120;
+
+    // Compile mic-check binary if not present
+    const micCheckBin = join(STATE_DIR, "mic-check");
+    const micCheckSrc = join(new URL(".", import.meta.url).pathname, "..", "..", "tools", "mic-check.swift");
+    if (!existsSync(micCheckBin) && existsSync(micCheckSrc)) {
+      try {
+        execSync(`swiftc -O "${micCheckSrc}" -o "${micCheckBin}"`, { timeout: 30000 });
+        console.log("  Compiled mic-check binary");
+      } catch {
+        console.log("  WARN: Could not compile mic-check — meeting detection disabled");
+      }
+    }
+
+    // Mic detection state
+    let micActive = false;
+    if (existsSync(micCheckBin)) {
+      setInterval(() => {
+        try {
+          const result = execSync(micCheckBin, { encoding: "utf-8", timeout: 2000 }).trim();
+          const wasActive = micActive;
+          micActive = result === "active";
+          if (micActive && !wasActive) {
+            console.log(`  ${ts()} MIC: microphone active — auto-muting`);
+          } else if (!micActive && wasActive) {
+            console.log(`  ${ts()} MIC: microphone inactive — resuming`);
+            // Play queued messages
+            const queued = drainMuteQueue();
+            if (queued.length > 0) {
+              console.log(`  ${ts()} MIC: playing ${queued.length} queued message(s)`);
+              playQueue(queued, config);
+            }
+          }
+        } catch {
+          // ignore — mic check failed
+        }
+      }, 5000);
+    }
 
     const server = createServer(async (req, res) => {
       if (req.method !== "POST") {
@@ -117,6 +197,17 @@ export const listenCommand = {
       }
 
       // --- Passed filters ---
+
+      // 4. Mute check (manual or mic-detected)
+      if (isMuted() || micActive) {
+        const reason = isMuted() ? "MUTED" : "MIC";
+        console.log(`  ${ts()} [${project}] ${reason}: ${phrase}`);
+        queueWhileMuted({ phrase, project, category, pack_id: packId, context: contextSnippet });
+        // Still send ntfy even when muted
+        sendNtfy(config, project, label, category, contextSnippet, phrase);
+        return;
+      }
+
       console.log(`  ${ts()} [${project}] ${label}: ${phrase}`);
 
       // Load pack (use pack_id from remote if available, otherwise config default)
@@ -127,35 +218,7 @@ export const listenCommand = {
 
       await speakPhrase(phrase, listenConfig, pack);
 
-      // ntfy notification
-      const ntfyTopic = config.ntfy_topic || "";
-      if (ntfyTopic) {
-        const { request } = await import("https");
-        const ntfyTitle = `${project ? project + " - " : ""}${label}`;
-        let ntfyBody = "";
-        if (contextSnippet) {
-          ntfyBody = contextSnippet.replace(/\s+/g, " ").slice(0, 200) + "\n\n";
-        }
-        ntfyBody += `🎙 ${phrase}`;
-
-        // ntfy requires ASCII headers; use RFC 2047 encoding for Unicode
-        const encodedTitle = Buffer.from(ntfyTitle).toString("base64");
-        const ntfyReq = request(
-          `https://ntfy.sh/${ntfyTopic}`,
-          {
-            method: "POST",
-            headers: {
-              "X-Title": "=?UTF-8?B?" + encodedTitle + "?=",
-              "X-Tags": category,
-              "Content-Length": Buffer.byteLength(ntfyBody),
-            },
-          },
-          (r) => { r.resume(); },
-        );
-        ntfyReq.on("error", () => {});
-        ntfyReq.write(ntfyBody);
-        ntfyReq.end();
-      }
+      sendNtfy(config, project, label, category, contextSnippet, phrase);
     });
 
     server.listen(port, () => {

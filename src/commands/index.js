@@ -6,6 +6,7 @@ import { helpCommand } from "./help.js";
 import { hookCommand } from "./hook.js";
 import { listenCommand } from "./listen.js";
 import { logCommand } from "./log.js";
+import { muteCommand, unmuteCommand } from "./mute.js";
 import { notificationCommand } from "./notification.js";
 import { packCommand } from "./pack.js";
 import { setupCommand } from "./setup.js";
@@ -19,6 +20,8 @@ export const COMMANDS = [
   setupCommand,
   hookCommand,
   listenCommand,
+  muteCommand,
+  unmuteCommand,
   cursorHookCommand,
   codexNotifyCommand,
   configCommand,
