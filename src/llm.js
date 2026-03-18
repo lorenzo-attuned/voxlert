@@ -72,6 +72,27 @@ export function extractContext(eventData) {
     return null;
   }
 
+  if (event === "PermissionRequest") {
+    const tool = eventData.tool_name || "";
+    const input = eventData.tool_input ? JSON.stringify(eventData.tool_input).slice(0, 200) : "";
+    if (tool) {
+      return `Permission requested for ${tool}: ${input}`.slice(0, 300);
+    }
+    return null;
+  }
+
+  if (event === "Notification") {
+    const msg = eventData.message || "";
+    if (msg) {
+      return msg.slice(0, 300);
+    }
+    return null;
+  }
+
+  if (event === "PreCompact") {
+    return "Context window is nearly full, compacting conversation";
+  }
+
   return null;
 }
 

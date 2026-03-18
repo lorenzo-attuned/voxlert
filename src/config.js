@@ -16,7 +16,7 @@ export const EVENT_MAP = {
 };
 
 // Events where we call the LLM for a contextual phrase
-export const CONTEXTUAL_EVENTS = new Set(["Stop", "PostToolUseFailure"]);
+export const CONTEXTUAL_EVENTS = new Set(["Stop", "PostToolUseFailure", "PermissionRequest", "Notification", "PreCompact"]);
 
 // Fallback phrases when LLM is unavailable or for non-contextual events
 export const FALLBACK_PHRASES = {
