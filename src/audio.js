@@ -241,11 +241,13 @@ function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
     let url;
     try {
       url = new URL(remoteUrl);
-    } catch {
+    } catch (e) {
+      console.log(`Remote playback: invalid URL ${remoteUrl}: ${e.message}`);
       return resolve();
     }
     const payload = JSON.stringify({ phrase, volume, ...remoteContext });
     const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
+    console.log(`Remote playback: POST ${url.href} (${Buffer.byteLength(payload)} bytes)`);
     const req = requestFn(
       url,
       {
@@ -254,15 +256,16 @@ function postPhraseToRemote(phrase, volume, remoteUrl, remoteContext) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 30000,
+        timeout: 15000,
       },
       (res) => {
+        console.log(`Remote playback: response ${res.statusCode}`);
         res.resume();
         resolve();
       },
     );
-    req.on("error", () => resolve());
-    req.on("timeout", () => { req.destroy(); resolve(); });
+    req.on("error", (err) => { console.log(`Remote playback: error ${err.message}`); resolve(); });
+    req.on("timeout", () => { console.log("Remote playback: timeout"); req.destroy(); resolve(); });
     req.write(payload);
     req.end();
   });
@@ -381,6 +384,7 @@ function downloadQwen(phrase, cachePath, config, voiceId) {
 
     const url = new URL(endpoint);
     const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const startTime = Date.now();
 
     const req = requestFn(
       endpoint,
@@ -390,29 +394,34 @@ function downloadQwen(phrase, cachePath, config, voiceId) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 30000,
+        timeout: 60000,
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
+          console.log(`TTS: HTTP ${res.statusCode} after ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
           res.resume();
           return resolve();
         }
         const chunks = [];
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           try {
-            writeFileSync(cachePath, Buffer.concat(chunks));
-          } catch {
-            // ignore
+            const buf = Buffer.concat(chunks);
+            writeFileSync(cachePath, buf);
+            console.log(`TTS: OK ${buf.length} bytes in ${elapsed}s`);
+          } catch (err) {
+            console.log(`TTS: write failed after ${elapsed}s: ${err.message}`);
           }
           resolve();
         });
-        res.on("error", () => resolve());
+        res.on("error", (err) => { console.log(`TTS: response error after ${((Date.now() - startTime) / 1000).toFixed(1)}s: ${err.message}`); resolve(); });
       },
     );
 
-    req.on("error", () => resolve());
+    req.on("error", (err) => { console.log(`TTS: request error: ${err.message}`); resolve(); });
     req.on("timeout", () => {
+      console.log(`TTS: timeout after ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
       req.destroy();
       resolve();
     });
@@ -554,15 +563,18 @@ export async function speakPhrase(phrase, config, pack, remoteContext) {
   // Remote playback: skip local TTS, send phrase text to remote listener
   const remoteUrl = config.remote_playback_url || null;
   if (remoteUrl) {
+    console.log(`Remote playback: posting to ${remoteUrl}`);
     return postPhraseToRemote(phrase, volume, remoteUrl, remoteContext || {});
   }
 
   // Ensure audio is in cache (all effects baked in at cache time)
   if (existsSync(cachePath)) {
+    console.log(`speakPhrase: cache hit ${cachePath}`);
     touchFile(cachePath);
   } else {
+    console.log(`speakPhrase: cache miss, downloading TTS (backend=${backend}, pack=${packId})`);
     await downloadToCache(phrase, cachePath, config, voicePath, ttsParams, packId, refText);
-    if (!existsSync(cachePath)) return false; // download failed
+    if (!existsSync(cachePath)) { console.log("speakPhrase: TTS download failed, no audio produced"); return false; }
     if (postProcessCmd) postProcess(cachePath, postProcessCmd);
     if (customAudioFilter || echo) applyEcho(cachePath, customAudioFilter);
     normalizeVolume(cachePath);

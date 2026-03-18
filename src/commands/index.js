@@ -4,7 +4,9 @@ import { costCommand } from "./cost.js";
 import { cursorHookCommand } from "./cursor-hook.js";
 import { helpCommand } from "./help.js";
 import { hookCommand } from "./hook.js";
+import { listenCommand } from "./listen.js";
 import { logCommand } from "./log.js";
+import { muteCommand, unmuteCommand } from "./mute.js";
 import { notificationCommand } from "./notification.js";
 import { packCommand } from "./pack.js";
 import { setupCommand } from "./setup.js";
@@ -17,6 +19,9 @@ import { volumeCommand } from "./volume.js";
 export const COMMANDS = [
   setupCommand,
   hookCommand,
+  listenCommand,
+  muteCommand,
+  unmuteCommand,
   cursorHookCommand,
   codexNotifyCommand,
   configCommand,

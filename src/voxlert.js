@@ -9,6 +9,7 @@
 import { basename } from "path";
 import { appendFileSync, mkdirSync } from "fs";
 import { request as httpsRequest } from "https";
+import { request as httpRequest } from "http";
 import { loadConfig, EVENT_MAP, CONTEXTUAL_EVENTS, FALLBACK_PHRASES } from "./config.js";
 import { extractContext, generatePhrase } from "./llm.js";
 import { speakPhrase } from "./audio.js";
@@ -66,6 +67,31 @@ export async function processHookEvent(eventData) {
   if (config.enabled === false) {
     debugLog("processHookEvent skip: config.enabled === false", { source });
     return;
+  }
+
+  // Quick bail if no audio output is possible (no TTS server, no remote URL)
+  if (!config.remote_playback_url) {
+    const ttsUrl = config.tts_backend === "chatterbox"
+      ? (config.chatterbox_url || "http://localhost:8004")
+      : (config.qwen_tts_url || "http://localhost:8100");
+    const reachable = await new Promise((resolve) => {
+      try {
+        const url = new URL("/health", ttsUrl);
+        const req = httpRequest(url, { method: "GET", timeout: 1000 }, (res) => {
+          res.resume();
+          resolve(true);
+        });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => { req.destroy(); resolve(false); });
+        req.end();
+      } catch {
+        resolve(false);
+      }
+    });
+    if (!reachable) {
+      debugLog("processHookEvent skip: TTS server unreachable", { source, ttsUrl });
+      return;
+    }
   }
 
   const eventName = eventData.hook_event_name || "";
@@ -197,23 +223,24 @@ export async function processHookEvent(eventData) {
       "notification": "Notification",
     };
     const label = categoryLabels[category] || category;
-    const ntfyTitle = `${projectName ? projectName + " — " : ""}${label}`;
+    const ntfyTitle = `${projectName ? projectName + " - " : ""}${label}`;
     let ntfyBody = "";
     if (contextSnippet) {
       ntfyBody = contextSnippet.replace(/\s+/g, " ").slice(0, 200) + "\n\n";
     }
-    ntfyBody += `🎙 ${phraseOneLine}`;
+    ntfyBody += phraseOneLine;
 
     // Fire and forget — don't block on ntfy
     const ntfyUrl = new URL(`https://ntfy.sh/${ntfyTopic}`);
     const ntfyPayload = ntfyBody;
+    const encodedTitle = Buffer.from(ntfyTitle).toString("base64");
     const ntfyReq = httpsRequest(
       ntfyUrl,
       {
         method: "POST",
         headers: {
-          "Title": ntfyTitle,
-          "Tags": category,
+          "X-Title": "=?UTF-8?B?" + encodedTitle + "?=",
+          "X-Tags": category,
           "Content-Length": Buffer.byteLength(ntfyPayload),
         },
         timeout: 5000,
