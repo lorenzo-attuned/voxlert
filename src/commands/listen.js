@@ -86,6 +86,29 @@ async function playQueue(items, config) {
   }
 }
 
+// Serial queue — ensures only one TTS request runs at a time
+const ttsQueue = [];
+let ttsProcessing = false;
+
+function enqueueTTS(fn) {
+  ttsQueue.push(fn);
+  drainTTSQueue();
+}
+
+async function drainTTSQueue() {
+  if (ttsProcessing) return;
+  ttsProcessing = true;
+  while (ttsQueue.length > 0) {
+    const fn = ttsQueue.shift();
+    try {
+      await fn();
+    } catch (err) {
+      console.log(`  ${ts()} TTS error: ${err.message}`);
+    }
+  }
+  ttsProcessing = false;
+}
+
 export const listenCommand = {
   name: "listen",
   aliases: [],
@@ -210,15 +233,15 @@ export const listenCommand = {
 
       console.log(`  ${ts()} [${project}] ${label}: ${phrase}`);
 
-      // Load pack (use pack_id from remote if available, otherwise config default)
-      // Clear remote_playback_url so speakPhrase plays locally, not loops back
-      const listenConfig = { ...config, remote_playback_url: null };
-      if (packId) listenConfig.active_pack = packId;
-      const pack = loadPack(listenConfig);
-
-      await speakPhrase(phrase, listenConfig, pack);
-
       sendNtfy(config, project, label, category, contextSnippet, phrase);
+
+      // Queue TTS so only one runs at a time (prevents timeouts from concurrent requests)
+      enqueueTTS(async () => {
+        const listenConfig = { ...config, remote_playback_url: null };
+        if (packId) listenConfig.active_pack = packId;
+        const pack = loadPack(listenConfig);
+        await speakPhrase(phrase, listenConfig, pack);
+      });
     });
 
     server.listen(port, () => {
