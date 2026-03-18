@@ -384,6 +384,7 @@ function downloadQwen(phrase, cachePath, config, voiceId) {
 
     const url = new URL(endpoint);
     const requestFn = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const startTime = Date.now();
 
     const req = requestFn(
       endpoint,
@@ -393,29 +394,34 @@ function downloadQwen(phrase, cachePath, config, voiceId) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
         },
-        timeout: 15000,
+        timeout: 60000,
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
+          console.log(`TTS: HTTP ${res.statusCode} after ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
           res.resume();
           return resolve();
         }
         const chunks = [];
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           try {
-            writeFileSync(cachePath, Buffer.concat(chunks));
-          } catch {
-            // ignore
+            const buf = Buffer.concat(chunks);
+            writeFileSync(cachePath, buf);
+            console.log(`TTS: OK ${buf.length} bytes in ${elapsed}s`);
+          } catch (err) {
+            console.log(`TTS: write failed after ${elapsed}s: ${err.message}`);
           }
           resolve();
         });
-        res.on("error", () => resolve());
+        res.on("error", (err) => { console.log(`TTS: response error after ${((Date.now() - startTime) / 1000).toFixed(1)}s: ${err.message}`); resolve(); });
       },
     );
 
-    req.on("error", () => resolve());
+    req.on("error", (err) => { console.log(`TTS: request error: ${err.message}`); resolve(); });
     req.on("timeout", () => {
+      console.log(`TTS: timeout after ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
       req.destroy();
       resolve();
     });
